@@ -1,6 +1,9 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback, Suspense } from 'react';
 import { createRoot } from 'react-dom/client';
-import { GoogleGenAI, Type, Schema } from "@google/genai";
+import { GoogleGenAI, Type, Schema, Part } from "@google/genai";
+import { Canvas, useFrame, useThree, ThreeEvent } from '@react-three/fiber';
+import { OrbitControls, Environment, ContactShadows, Float, Stars, Sparkles as ThreeSparkles } from '@react-three/drei';
+import * as THREE from 'three';
 import { 
   Sprout, 
   Camera, 
@@ -24,7 +27,15 @@ import {
   Stethoscope,
   FlaskConical,
   Clock,
-  ChevronRight
+  ChevronRight,
+  Rotate3d,
+  Layers,
+  Image as ImageIcon,
+  MousePointer2,
+  Maximize,
+  Move,
+  Box,
+  Focus
 } from 'lucide-react';
 
 // --- Types & Translations ---
@@ -54,8 +65,10 @@ const translations = {
     title: "AI Botanist",
     subtitle: "Professional Plant Care & Diagnosis",
     uploadBtn: "Analyze Plant",
+    uploadHint: "Upload 1 or more photos. AI will reconstruct a 3D model.",
     analyzing: "Analyzing specimen...",
     analyzingSub: "Identifying species and pathology...",
+    generating3d: "Constructing 3D Neural Model...",
     reupload: "New Diagnosis",
     health: {
       Healthy: "Healthy",
@@ -84,16 +97,20 @@ const translations = {
       light: "Light",
       water: "Water",
       soil: "Soil",
-      temp: "Temp"
+      temp: "Temp",
+      view360: "3D View",
+      dragToRotate: "Left: Rotate | Right: Pan | Double Click: Focus | 'R': Reset"
     },
-    error: "Could not analyze the image. Please try a clear photo of a plant."
+    error: "Could not analyze the images. Please try clear photos of a plant."
   },
   zh: {
     title: "AI 园艺师",
     subtitle: "专业植物诊断与养护系统",
     uploadBtn: "开始诊断",
+    uploadHint: "上传照片，AI 将为您重建 3D 数字孪生模型。",
     analyzing: "正在全维分析...",
     analyzingSub: "识别品种 · 病理分析 · 用药参考",
+    generating3d: "正在生成 3D 神经网络模型...",
     reupload: "新的诊断",
     health: {
       Healthy: "健康",
@@ -122,7 +139,9 @@ const translations = {
       light: "光照",
       water: "浇水",
       soil: "土壤",
-      temp: "温度"
+      temp: "温度",
+      view360: "3D 视图",
+      dragToRotate: "左键旋转 · 右键平移 · 双击聚焦 · R键复位"
     },
     error: "无法分析该图片。请上传清晰的植物照片。"
   }
@@ -184,7 +203,181 @@ const plantSchema: Schema = {
   required: ["name", "scientificName", "healthStatus", "riskLevel", "symptoms", "causes", "urgency", "care", "diagnosisSteps", "treatmentIngredients", "funFact"]
 };
 
-// --- Components ---
+// --- 3D Components ---
+
+// A procedurally generated plant to simulate the "AI Reconstructed Model"
+// In a real app, this would be a loaded GLTF/GLB file.
+const ProceduralPlant = (props: any) => {
+  const group = useRef<THREE.Group>(null);
+  
+  // Animation for "breathing" or "growing" slightly
+  useFrame((state) => {
+    if (group.current) {
+      group.current.rotation.y = Math.sin(state.clock.getElapsedTime() * 0.1) * 0.05;
+    }
+  });
+
+  return (
+    <group ref={group} {...props} dispose={null}>
+      {/* Stem */}
+      <mesh position={[0, 1, 0]} castShadow receiveShadow>
+        <cylinderGeometry args={[0.08, 0.12, 2, 16]} />
+        <meshStandardMaterial color="#4ade80" roughness={0.6} />
+      </mesh>
+      
+      {/* Leaves */}
+      <group position={[0, 0.5, 0]} rotation={[0.5, 0, 0]}>
+        <mesh position={[0, 0.5, 0.3]} scale={[0.5, 0.05, 0.8]} castShadow>
+          <sphereGeometry args={[1, 16, 16]} />
+          <meshStandardMaterial color="#22c55e" roughness={0.4} />
+        </mesh>
+      </group>
+      <group position={[0, 0.8, 0]} rotation={[0.4, 2, 0]}>
+         <mesh position={[0, 0.5, 0.3]} scale={[0.45, 0.05, 0.7]} castShadow>
+          <sphereGeometry args={[1, 16, 16]} />
+          <meshStandardMaterial color="#22c55e" roughness={0.4} />
+        </mesh>
+      </group>
+      <group position={[0, 1.2, 0]} rotation={[0.6, 4, 0]}>
+         <mesh position={[0, 0.5, 0.3]} scale={[0.4, 0.05, 0.6]} castShadow>
+          <sphereGeometry args={[1, 16, 16]} />
+          <meshStandardMaterial color="#16a34a" roughness={0.4} />
+        </mesh>
+      </group>
+       <group position={[0, 1.5, 0]} rotation={[0.3, 5.5, 0]}>
+         <mesh position={[0, 0.4, 0.3]} scale={[0.3, 0.05, 0.5]} castShadow>
+          <sphereGeometry args={[1, 16, 16]} />
+          <meshStandardMaterial color="#4ade80" roughness={0.4} />
+        </mesh>
+      </group>
+
+      {/* Pot */}
+      <mesh position={[0, -0.25, 0]} castShadow receiveShadow>
+         <cylinderGeometry args={[0.6, 0.4, 0.8, 32]} />
+         <meshStandardMaterial color="#a8a29e" roughness={0.8} />
+      </mesh>
+      <mesh position={[0, 0.16, 0]} rotation={[-Math.PI/2, 0, 0]}>
+         <circleGeometry args={[0.55, 32]} />
+         <meshStandardMaterial color="#44403c" />
+      </mesh>
+    </group>
+  );
+};
+
+const ViewerController = ({ resetTrigger }: { resetTrigger: number }) => {
+  const { camera, controls } = useThree();
+  const controlsRef = useRef<any>(null);
+  const targetPos = useRef(new THREE.Vector3(0, 0, 0));
+  const cameraPos = useRef(new THREE.Vector3(2, 2, 4));
+
+  useEffect(() => {
+    if (controlsRef.current) {
+        controlsRef.current.reset();
+    }
+  }, [resetTrigger]);
+
+  // Handle Focus on Double Click
+  const handleDoubleClick = (e: ThreeEvent<MouseEvent>) => {
+    e.stopPropagation();
+    
+    // The point on the mesh where user clicked
+    const point = e.point;
+    
+    // Animate target to the clicked point
+    // We can use a simple lerp in useFrame, but for now let's just set it to demonstrate the "Focus"
+    if (controlsRef.current) {
+        // Calculate a new camera position that is closer to the object but maintains direction
+        const direction = camera.position.clone().sub(point).normalize();
+        const dist = 1.5; // Zoom distance
+        const newCamPos = point.clone().add(direction.multiplyScalar(dist));
+        
+        // Simple manual tween simulation could go here, but direct set is instant feedback
+        controlsRef.current.target.copy(point);
+        camera.position.copy(newCamPos);
+        controlsRef.current.update();
+    }
+  };
+
+  // We expose a helper to attaching the event to the group
+  // Actually, we can just attach it to the parent group of the plant
+  return (
+    <>
+      <OrbitControls 
+        ref={controlsRef}
+        makeDefault 
+        enableDamping 
+        dampingFactor={0.05} 
+        minDistance={0.5}
+        maxDistance={8}
+        maxPolarAngle={Math.PI / 2 - 0.1} // Prevent going below ground
+      />
+      
+      {/* Interactive Plant Group */}
+      <group onDoubleClick={handleDoubleClick}>
+         <Float speed={2} rotationIntensity={0.2} floatIntensity={0.5}>
+            <ProceduralPlant />
+         </Float>
+      </group>
+    </>
+  );
+};
+
+const Plant3DScene = ({ lang }: { lang: Lang }) => {
+  const [resetCount, setResetCount] = useState(0);
+
+  // Keyboard 'R' to reset
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key.toLowerCase() === 'r') setResetCount(c => c + 1);
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
+  return (
+    <div className="w-full h-full relative bg-emerald-950">
+      <Canvas shadows camera={{ position: [2, 2, 4], fov: 45 }}>
+        <fog attach="fog" args={['#022c22', 5, 15]} />
+        <ambientLight intensity={0.5} />
+        <spotLight 
+          position={[5, 10, 5]} 
+          angle={0.5} 
+          penumbra={1} 
+          intensity={1.5} 
+          castShadow 
+          shadow-mapSize={[1024, 1024]} 
+        />
+        <pointLight position={[-5, 5, -5]} intensity={0.5} color="#4ade80" />
+
+        <Suspense fallback={null}>
+            <Environment preset="forest" />
+            <ViewerController resetTrigger={resetCount} />
+            <ContactShadows position={[0, -1, 0]} opacity={0.4} scale={10} blur={2.5} far={4} />
+            <ThreeSparkles count={50} scale={3} size={2} speed={0.4} opacity={0.5} color="#4ade80" />
+        </Suspense>
+      </Canvas>
+      
+      {/* Overlay UI */}
+      <div className="absolute top-6 right-6 pointer-events-none">
+        <div className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-500/20 backdrop-blur-md rounded-full text-white text-xs font-bold border border-emerald-400/30 shadow-lg animate-pulse">
+            <Box size={14} />
+            <span>WebGL 3D</span>
+        </div>
+      </div>
+
+      <div className="absolute bottom-8 left-0 right-0 flex justify-center pointer-events-none">
+         <div className="bg-black/60 backdrop-blur-md px-5 py-2.5 rounded-full border border-white/10 text-white/80 text-[10px] uppercase tracking-wider flex items-center gap-4 shadow-xl">
+            <span className="flex items-center gap-1.5"><Rotate3d size={12} /> Rotate</span>
+            <span className="flex items-center gap-1.5"><Move size={12} /> Pan</span>
+            <span className="flex items-center gap-1.5"><MousePointer2 size={12} /> Double-Click Focus</span>
+            <span className="flex items-center gap-1.5"><RefreshCcw size={12} /> 'R' Reset</span>
+         </div>
+      </div>
+    </div>
+  );
+};
+
+// --- Main App Logic & Existing Components ---
 
 const HealthBar = ({ status, risk, lang }: { status: PlantData['healthStatus'], risk: PlantData['riskLevel'], lang: Lang }) => {
   const t = translations[lang];
@@ -259,32 +452,38 @@ const StepItem: React.FC<{ number: number; text: string; isLast: boolean }> = ({
   </div>
 );
 
-// --- Main App ---
-
 const App = () => {
   const [lang, setLang] = useState<Lang>('zh');
   const [analyzing, setAnalyzing] = useState(false);
-  const [image, setImage] = useState<string | null>(null);
+  const [generating3d, setGenerating3d] = useState(false);
+  const [images, setImages] = useState<string[] | null>(null);
   const [data, setData] = useState<PlantData | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const t = translations[lang];
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
 
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      const result = reader.result as string;
-      setImage(result);
-      analyzePlant(result);
-    };
-    reader.readAsDataURL(file);
+    // Convert all files to base64
+    const promises = Array.from(files).map((file: File) => {
+      return new Promise<string>((resolve) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result as string);
+        reader.readAsDataURL(file);
+      });
+    });
+
+    Promise.all(promises).then(base64Images => {
+      setImages(base64Images);
+      analyzePlant(base64Images);
+    });
+    
     e.target.value = ''; // Reset
   };
 
-  const analyzePlant = async (base64Image: string) => {
+  const analyzePlant = async (base64Images: string[]) => {
     setAnalyzing(true);
     setData(null);
 
@@ -292,11 +491,8 @@ const App = () => {
       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
       const modelId = 'gemini-2.5-flash';
 
-      const base64Data = base64Image.split(',')[1];
-      const mimeType = base64Image.split(';')[0].split(':')[1];
-
       const prompt = lang === 'zh' 
-        ? `你是一位专业的植物病理学家。分析这张图片。
+        ? `你是一位专业的植物病理学家。分析这些图片。
            任务：
            1. 识别植物。
            2. 诊断健康状况、风险等级、具体症状和病因。
@@ -308,7 +504,7 @@ const App = () => {
            - 所有文本字段必须使用简体中文。
            - healthStatus, riskLevel, urgency 使用英文枚举值。
            `
-        : `You are an expert plant pathologist. Analyze this image.
+        : `You are an expert plant pathologist. Analyze these images.
            Tasks:
            1. Identify the plant.
            2. Diagnose health, risk level, symptoms, and causes.
@@ -318,14 +514,19 @@ const App = () => {
            Output: JSON format. English text.
            `;
 
+      // Construct parts from all images
+      const imageParts: Part[] = base64Images.map(img => {
+        const base64Data = img.split(',')[1];
+        const mimeType = img.split(';')[0].split(':')[1];
+        return { inlineData: { mimeType, data: base64Data } };
+      });
+
       const response = await ai.models.generateContent({
         model: modelId,
-        contents: {
-          parts: [
-            { inlineData: { mimeType, data: base64Data } },
+        contents: [
+            ...imageParts,
             { text: prompt }
-          ]
-        },
+        ],
         config: {
           responseMimeType: "application/json",
           responseSchema: plantSchema
@@ -335,27 +536,34 @@ const App = () => {
       const jsonText = response.text;
       if (jsonText) {
         const parsedData = JSON.parse(jsonText) as PlantData;
-        setData(parsedData);
+        
+        // Simulate 3D generation delay
+        setAnalyzing(false);
+        setGenerating3d(true);
+        setTimeout(() => {
+           setGenerating3d(false);
+           setData(parsedData);
+        }, 2500); // 2.5s simulated 3D gen time
       }
     } catch (error) {
       console.error("Analysis failed:", error);
       alert(t.error);
-      setImage(null);
-    } finally {
+      setImages(null);
       setAnalyzing(false);
-    }
+    } 
   };
 
   const reset = () => {
-    setImage(null);
+    setImages(null);
     setData(null);
+    setGenerating3d(false);
   };
 
   return (
     <div className="flex flex-col min-h-screen bg-paper font-sans text-stone-800 overflow-x-hidden selection:bg-emerald-200">
       
       {/* --- Landing / Upload State --- */}
-      {!image && (
+      {!images && (
         <div className="flex-1 flex flex-col relative overflow-hidden bg-emerald-950">
            {/* Animated Background Mesh */}
            <div className="absolute inset-0 z-0 opacity-40">
@@ -394,7 +602,7 @@ const App = () => {
                </div>
                
                {/* Action Button */}
-               <div className="pt-10">
+               <div className="pt-10 flex flex-col items-center gap-4">
                  <button 
                   onClick={() => fileInputRef.current?.click()}
                   className="group relative inline-flex items-center gap-4 bg-emerald-500 hover:bg-emerald-400 text-emerald-950 px-10 py-5 rounded-full shadow-[0_0_40px_rgba(16,185,129,0.4)] hover:shadow-[0_0_60px_rgba(52,211,153,0.6)] transition-all duration-500 transform hover:-translate-y-1"
@@ -405,6 +613,10 @@ const App = () => {
                    <span className="font-serif font-bold text-lg tracking-wide">{t.uploadBtn}</span>
                    <div className="absolute inset-0 rounded-full border border-white/20 scale-105 opacity-0 group-hover:opacity-100 transition-all duration-500" />
                  </button>
+                 <p className="text-white/40 text-sm flex items-center gap-2">
+                   <Layers size={14} />
+                   {t.uploadHint}
+                 </p>
                </div>
 
                {/* Footer Tagline */}
@@ -414,11 +626,11 @@ const App = () => {
         </div>
       )}
 
-      {/* --- Analyzing State --- */}
-      {image && analyzing && (
+      {/* --- Analyzing / Generating State --- */}
+      {images && (analyzing || generating3d) && (
         <div className="flex-1 flex flex-col items-center justify-center bg-emerald-950 text-white p-6 relative overflow-hidden">
           <img 
-            src={image} 
+            src={images[0]} 
             className="absolute inset-0 w-full h-full object-cover opacity-20 blur-2xl scale-110" 
             alt="Background" 
           />
@@ -426,8 +638,12 @@ const App = () => {
           
           <div className="relative z-10 flex flex-col items-center max-w-sm text-center">
             <div className="relative mb-10">
-              <div className="w-32 h-32 rounded-3xl overflow-hidden border border-white/10 shadow-[0_0_50px_rgba(16,185,129,0.2)] bg-black/20 backdrop-blur-sm relative z-10">
-                <img src={image} className="w-full h-full object-cover opacity-80" alt="Analyzing" />
+              <div className="w-32 h-32 rounded-3xl overflow-hidden border border-white/10 shadow-[0_0_50px_rgba(16,185,129,0.2)] bg-black/20 backdrop-blur-sm relative z-10 flex items-center justify-center">
+                {generating3d ? (
+                    <Box size={48} className="text-emerald-400 animate-bounce" />
+                ) : (
+                    <img src={images[0]} className="w-full h-full object-cover opacity-80" alt="Analyzing" />
+                )}
               </div>
               {/* Scanning Lines */}
               <div className="absolute -inset-6 border border-emerald-500/20 rounded-[2.5rem] animate-[spin_4s_linear_infinite]" />
@@ -435,10 +651,12 @@ const App = () => {
             </div>
             
             <div className="space-y-3">
-              <h2 className="text-3xl font-serif font-medium tracking-wide">{t.analyzing}</h2>
+              <h2 className="text-3xl font-serif font-medium tracking-wide">
+                  {analyzing ? t.analyzing : t.generating3d}
+              </h2>
               <div className="flex items-center justify-center gap-2 text-emerald-400/80 text-sm font-medium animate-pulse">
                 <Loader2 size={14} className="animate-spin" />
-                <span>{t.analyzingSub}</span>
+                <span>{analyzing ? t.analyzingSub : "AI Neural Reconstruction..."}</span>
               </div>
             </div>
           </div>
@@ -446,19 +664,19 @@ const App = () => {
       )}
 
       {/* --- Result State --- */}
-      {image && data && !analyzing && (
+      {images && data && !analyzing && !generating3d && (
         <div className="flex-1 flex flex-col lg:flex-row h-auto lg:h-screen lg:overflow-hidden animate-in fade-in duration-700">
           
-          {/* Left Column: Visuals */}
-          <div className="lg:w-[45%] xl:w-[40%] relative flex flex-col bg-stone-200">
-            {/* Image */}
-            <div className="relative flex-1 min-h-[50vh] lg:min-h-0">
-              <img src={image} className="w-full h-full object-cover" alt={data.name} />
-              <div className="absolute inset-0 bg-gradient-to-t from-emerald-950/90 via-transparent to-black/10" />
+          {/* Left Column: Visuals (Interactive 3D Viewer) */}
+          <div className="lg:w-[45%] xl:w-[40%] relative flex flex-col bg-stone-200 group">
+            <div className="relative flex-1 min-h-[50vh] lg:min-h-0 bg-emerald-950">
+              
+              {/* THE 3D SCENE */}
+              <Plant3DScene lang={lang} />
               
               {/* Floating Info Card */}
-              <div className="absolute bottom-8 left-6 right-6 lg:bottom-12 lg:left-10 lg:right-10">
-                <div className="bg-white/10 backdrop-blur-xl border border-white/20 p-6 rounded-2xl text-white shadow-2xl">
+              <div className="absolute bottom-8 left-6 right-6 lg:bottom-12 lg:left-10 lg:right-10 pointer-events-none">
+                <div className="bg-white/10 backdrop-blur-xl border border-white/20 p-6 rounded-2xl text-white shadow-2xl pointer-events-auto">
                   <div className="flex items-center gap-2 mb-3 text-emerald-300">
                     <Sparkles size={16} />
                     <span className="text-xs font-bold tracking-[0.15em] uppercase">{data.scientificName}</span>
@@ -472,9 +690,9 @@ const App = () => {
               {/* Back Button */}
               <button 
                 onClick={reset}
-                className="absolute top-6 left-6 p-3 bg-black/20 hover:bg-black/40 backdrop-blur-md rounded-full text-white transition-all z-20 border border-white/10 group"
+                className="absolute top-6 left-6 p-3 bg-black/20 hover:bg-black/40 backdrop-blur-md rounded-full text-white transition-all z-20 border border-white/10 group-btn"
               >
-                <ArrowRight size={20} className="rotate-180 group-hover:-translate-x-1 transition-transform" />
+                <ArrowRight size={20} className="rotate-180 group-btn-hover:-translate-x-1 transition-transform" />
               </button>
             </div>
           </div>
@@ -639,6 +857,7 @@ const App = () => {
       {/* Hidden Input */}
       <input
         type="file"
+        multiple
         accept="image/*"
         className="hidden"
         ref={fileInputRef}
