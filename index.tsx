@@ -35,8 +35,15 @@ import {
   Maximize,
   Move,
   Box,
-  Focus
+  Focus,
+  Terminal,
+  Cpu,
+  CloudUpload,
+  Network
 } from 'lucide-react';
+
+// --- CONFIGURATION ---
+const ENABLE_3D = false; // Set to true to enable WebGL 3D model generation and interaction
 
 // --- Types & Translations ---
 type Lang = 'zh' | 'en';
@@ -65,10 +72,7 @@ const translations = {
     title: "AI Botanist",
     subtitle: "Professional Plant Care & Diagnosis",
     uploadBtn: "Analyze Plant",
-    uploadHint: "Upload 1 or more photos. AI will reconstruct a 3D model.",
-    analyzing: "Analyzing specimen...",
-    analyzingSub: "Identifying species and pathology...",
-    generating3d: "Constructing 3D Neural Model...",
+    uploadHint: ENABLE_3D ? "Upload photo. AI reconstructs 3D digital twin." : "Upload photo for comprehensive AI analysis.",
     reupload: "New Diagnosis",
     health: {
       Healthy: "Healthy",
@@ -107,10 +111,7 @@ const translations = {
     title: "AI 园艺师",
     subtitle: "专业植物诊断与养护系统",
     uploadBtn: "开始诊断",
-    uploadHint: "上传照片，AI 将为您重建 3D 数字孪生模型。",
-    analyzing: "正在全维分析...",
-    analyzingSub: "识别品种 · 病理分析 · 用药参考",
-    generating3d: "正在生成 3D 神经网络模型...",
+    uploadHint: ENABLE_3D ? "上传照片，AI 将为您重建 3D 数字孪生模型。" : "上传照片，AI 将为您进行全维分析。",
     reupload: "新的诊断",
     health: {
       Healthy: "健康",
@@ -205,12 +206,9 @@ const plantSchema: Schema = {
 
 // --- 3D Components ---
 
-// A procedurally generated plant to simulate the "AI Reconstructed Model"
-// In a real app, this would be a loaded GLTF/GLB file.
 const ProceduralPlant = (props: any) => {
   const group = useRef<THREE.Group>(null);
   
-  // Animation for "breathing" or "growing" slightly
   useFrame((state) => {
     if (group.current) {
       group.current.rotation.y = Math.sin(state.clock.getElapsedTime() * 0.1) * 0.05;
@@ -225,7 +223,7 @@ const ProceduralPlant = (props: any) => {
         <meshStandardMaterial color="#4ade80" roughness={0.6} />
       </mesh>
       
-      {/* Leaves */}
+      {/* Leaves - Procedurally arranged */}
       <group position={[0, 0.5, 0]} rotation={[0.5, 0, 0]}>
         <mesh position={[0, 0.5, 0.3]} scale={[0.5, 0.05, 0.8]} castShadow>
           <sphereGeometry args={[1, 16, 16]} />
@@ -267,8 +265,6 @@ const ProceduralPlant = (props: any) => {
 const ViewerController = ({ resetTrigger }: { resetTrigger: number }) => {
   const { camera, controls } = useThree();
   const controlsRef = useRef<any>(null);
-  const targetPos = useRef(new THREE.Vector3(0, 0, 0));
-  const cameraPos = useRef(new THREE.Vector3(2, 2, 4));
 
   useEffect(() => {
     if (controlsRef.current) {
@@ -276,30 +272,21 @@ const ViewerController = ({ resetTrigger }: { resetTrigger: number }) => {
     }
   }, [resetTrigger]);
 
-  // Handle Focus on Double Click
   const handleDoubleClick = (e: ThreeEvent<MouseEvent>) => {
     e.stopPropagation();
-    
-    // The point on the mesh where user clicked
     const point = e.point;
     
-    // Animate target to the clicked point
-    // We can use a simple lerp in useFrame, but for now let's just set it to demonstrate the "Focus"
     if (controlsRef.current) {
-        // Calculate a new camera position that is closer to the object but maintains direction
         const direction = camera.position.clone().sub(point).normalize();
-        const dist = 1.5; // Zoom distance
+        const dist = 1.5; 
         const newCamPos = point.clone().add(direction.multiplyScalar(dist));
         
-        // Simple manual tween simulation could go here, but direct set is instant feedback
         controlsRef.current.target.copy(point);
         camera.position.copy(newCamPos);
         controlsRef.current.update();
     }
   };
 
-  // We expose a helper to attaching the event to the group
-  // Actually, we can just attach it to the parent group of the plant
   return (
     <>
       <OrbitControls 
@@ -309,10 +296,8 @@ const ViewerController = ({ resetTrigger }: { resetTrigger: number }) => {
         dampingFactor={0.05} 
         minDistance={0.5}
         maxDistance={8}
-        maxPolarAngle={Math.PI / 2 - 0.1} // Prevent going below ground
+        maxPolarAngle={Math.PI / 2 - 0.1} 
       />
-      
-      {/* Interactive Plant Group */}
       <group onDoubleClick={handleDoubleClick}>
          <Float speed={2} rotationIntensity={0.2} floatIntensity={0.5}>
             <ProceduralPlant />
@@ -325,7 +310,6 @@ const ViewerController = ({ resetTrigger }: { resetTrigger: number }) => {
 const Plant3DScene = ({ lang }: { lang: Lang }) => {
   const [resetCount, setResetCount] = useState(0);
 
-  // Keyboard 'R' to reset
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key.toLowerCase() === 'r') setResetCount(c => c + 1);
@@ -356,33 +340,14 @@ const Plant3DScene = ({ lang }: { lang: Lang }) => {
             <ThreeSparkles count={50} scale={3} size={2} speed={0.4} opacity={0.5} color="#4ade80" />
         </Suspense>
       </Canvas>
-      
-      {/* Overlay UI */}
-      <div className="absolute top-6 right-6 pointer-events-none">
-        <div className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-500/20 backdrop-blur-md rounded-full text-white text-xs font-bold border border-emerald-400/30 shadow-lg animate-pulse">
-            <Box size={14} />
-            <span>WebGL 3D</span>
-        </div>
-      </div>
-
-      <div className="absolute bottom-8 left-0 right-0 flex justify-center pointer-events-none">
-         <div className="bg-black/60 backdrop-blur-md px-5 py-2.5 rounded-full border border-white/10 text-white/80 text-[10px] uppercase tracking-wider flex items-center gap-4 shadow-xl">
-            <span className="flex items-center gap-1.5"><Rotate3d size={12} /> Rotate</span>
-            <span className="flex items-center gap-1.5"><Move size={12} /> Pan</span>
-            <span className="flex items-center gap-1.5"><MousePointer2 size={12} /> Double-Click Focus</span>
-            <span className="flex items-center gap-1.5"><RefreshCcw size={12} /> 'R' Reset</span>
-         </div>
-      </div>
     </div>
   );
 };
 
-// --- Main App Logic & Existing Components ---
+// --- Main App Logic ---
 
 const HealthBar = ({ status, risk, lang }: { status: PlantData['healthStatus'], risk: PlantData['riskLevel'], lang: Lang }) => {
   const t = translations[lang];
-  
-  // Color logic
   let gradient = "from-emerald-400 to-emerald-600";
   let width = "100%";
   let shadowColor = "shadow-emerald-500/30";
@@ -401,7 +366,6 @@ const HealthBar = ({ status, risk, lang }: { status: PlantData['healthStatus'], 
     shadowColor = "shadow-stone-500/30";
   }
 
-  // Badge logic
   let badgeColor = "bg-emerald-100 text-emerald-800 border-emerald-200";
   if (risk === 'Medium') badgeColor = "bg-amber-100 text-amber-800 border-amber-200";
   if (risk === 'High') badgeColor = "bg-rose-100 text-rose-800 border-rose-200";
@@ -438,11 +402,9 @@ const CareItem = ({ icon, label, value, bgClass }: { icon: React.ReactNode, labe
 
 const StepItem: React.FC<{ number: number; text: string; isLast: boolean }> = ({ number, text, isLast }) => (
   <div className="flex gap-6 relative group">
-    {/* Timeline Line */}
     {!isLast && (
       <div className="absolute left-[19px] top-10 bottom-[-24px] w-[2px] bg-stone-100 group-hover:bg-emerald-100 transition-colors" />
     )}
-    
     <div className="flex-shrink-0 w-10 h-10 rounded-full bg-emerald-50 text-emerald-700 flex items-center justify-center font-serif font-bold text-lg border-2 border-emerald-100 shadow-sm z-10 group-hover:scale-110 transition-transform duration-300">
       {number}
     </div>
@@ -454,8 +416,7 @@ const StepItem: React.FC<{ number: number; text: string; isLast: boolean }> = ({
 
 const App = () => {
   const [lang, setLang] = useState<Lang>('zh');
-  const [analyzing, setAnalyzing] = useState(false);
-  const [generating3d, setGenerating3d] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
   const [images, setImages] = useState<string[] | null>(null);
   const [data, setData] = useState<PlantData | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -466,7 +427,10 @@ const App = () => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
 
-    // Convert all files to base64
+    // Reset state
+    setData(null);
+    setIsProcessing(true);
+
     const promises = Array.from(files).map((file: File) => {
       return new Promise<string>((resolve) => {
         const reader = new FileReader();
@@ -477,16 +441,30 @@ const App = () => {
 
     Promise.all(promises).then(base64Images => {
       setImages(base64Images);
-      analyzePlant(base64Images);
+      startSimulationAndAnalysis(base64Images);
     });
     
-    e.target.value = ''; // Reset
+    e.target.value = '';
   };
 
-  const analyzePlant = async (base64Images: string[]) => {
-    setAnalyzing(true);
-    setData(null);
+  const startSimulationAndAnalysis = async (base64Images: string[]) => {
+    setIsProcessing(true);
+    
+    try {
+        const result = await callGemini(base64Images);
+        if (result) {
+            setData(result);
+        }
+    } catch (e) {
+        console.error(e);
+        alert(t.error);
+        setImages(null);
+    } finally {
+        setIsProcessing(false);
+    }
+  };
 
+  const callGemini = async (base64Images: string[]): Promise<PlantData | null> => {
     try {
       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
       const modelId = 'gemini-2.5-flash';
@@ -514,7 +492,6 @@ const App = () => {
            Output: JSON format. English text.
            `;
 
-      // Construct parts from all images
       const imageParts: Part[] = base64Images.map(img => {
         const base64Data = img.split(',')[1];
         const mimeType = img.split(';')[0].split(':')[1];
@@ -523,10 +500,7 @@ const App = () => {
 
       const response = await ai.models.generateContent({
         model: modelId,
-        contents: [
-            ...imageParts,
-            { text: prompt }
-        ],
+        contents: [ ...imageParts, { text: prompt } ],
         config: {
           responseMimeType: "application/json",
           responseSchema: plantSchema
@@ -535,28 +509,17 @@ const App = () => {
 
       const jsonText = response.text;
       if (jsonText) {
-        const parsedData = JSON.parse(jsonText) as PlantData;
-        
-        // Simulate 3D generation delay
-        setAnalyzing(false);
-        setGenerating3d(true);
-        setTimeout(() => {
-           setGenerating3d(false);
-           setData(parsedData);
-        }, 2500); // 2.5s simulated 3D gen time
+        return JSON.parse(jsonText) as PlantData;
       }
+      return null;
     } catch (error) {
-      console.error("Analysis failed:", error);
-      alert(t.error);
-      setImages(null);
-      setAnalyzing(false);
+      throw error;
     } 
   };
 
   const reset = () => {
     setImages(null);
     setData(null);
-    setGenerating3d(false);
   };
 
   return (
@@ -626,55 +589,81 @@ const App = () => {
         </div>
       )}
 
-      {/* --- Analyzing / Generating State --- */}
-      {images && (analyzing || generating3d) && (
+      {/* --- Processing State --- */}
+      {images && isProcessing && (
         <div className="flex-1 flex flex-col items-center justify-center bg-emerald-950 text-white p-6 relative overflow-hidden">
           <img 
             src={images[0]} 
-            className="absolute inset-0 w-full h-full object-cover opacity-20 blur-2xl scale-110" 
+            className="absolute inset-0 w-full h-full object-cover opacity-20 blur-3xl scale-125 animate-pulse-slow" 
             alt="Background" 
           />
-          <div className="absolute inset-0 bg-gradient-to-t from-emerald-950 via-emerald-950/80 to-transparent" />
+          <div className="absolute inset-0 bg-gradient-to-t from-emerald-950/80 via-emerald-950/60 to-emerald-950/80" />
           
-          <div className="relative z-10 flex flex-col items-center max-w-sm text-center">
-            <div className="relative mb-10">
-              <div className="w-32 h-32 rounded-3xl overflow-hidden border border-white/10 shadow-[0_0_50px_rgba(16,185,129,0.2)] bg-black/20 backdrop-blur-sm relative z-10 flex items-center justify-center">
-                {generating3d ? (
-                    <Box size={48} className="text-emerald-400 animate-bounce" />
-                ) : (
-                    <img src={images[0]} className="w-full h-full object-cover opacity-80" alt="Analyzing" />
-                )}
-              </div>
-              {/* Scanning Lines */}
-              <div className="absolute -inset-6 border border-emerald-500/20 rounded-[2.5rem] animate-[spin_4s_linear_infinite]" />
-              <div className="absolute -inset-6 border border-emerald-500/20 rounded-[2.5rem] rotate-45 animate-[spin_6s_linear_infinite_reverse]" />
-            </div>
-            
-            <div className="space-y-3">
-              <h2 className="text-3xl font-serif font-medium tracking-wide">
-                  {analyzing ? t.analyzing : t.generating3d}
-              </h2>
-              <div className="flex items-center justify-center gap-2 text-emerald-400/80 text-sm font-medium animate-pulse">
-                <Loader2 size={14} className="animate-spin" />
-                <span>{analyzing ? t.analyzingSub : "AI Neural Reconstruction..."}</span>
-              </div>
-            </div>
+          <div className="relative z-10 flex flex-col items-center gap-6 animate-in fade-in zoom-in duration-500">
+             <div className="relative">
+                <div className="absolute inset-0 bg-emerald-500 blur-xl opacity-20 animate-pulse" />
+                <Loader2 size={48} className="text-emerald-400 animate-spin relative z-10" />
+             </div>
+             <p className="text-lg font-serif font-medium text-emerald-100/90 tracking-wide animate-pulse">
+                {lang === 'zh' ? '正在分析植物特征...' : 'Analyzing plant features...'}
+             </p>
           </div>
         </div>
       )}
 
       {/* --- Result State --- */}
-      {images && data && !analyzing && !generating3d && (
+      {images && data && !isProcessing && (
         <div className="flex-1 flex flex-col lg:flex-row h-auto lg:h-screen lg:overflow-hidden animate-in fade-in duration-700">
           
-          {/* Left Column: Visuals (Interactive 3D Viewer) */}
+          {/* Left Column: Visuals (Interactive 3D Viewer OR 2D Image) */}
           <div className="lg:w-[45%] xl:w-[40%] relative flex flex-col bg-stone-200 group">
             <div className="relative flex-1 min-h-[50vh] lg:min-h-0 bg-emerald-950">
               
-              {/* THE 3D SCENE */}
-              <Plant3DScene lang={lang} />
+              {ENABLE_3D ? (
+                  <>
+                      {/* THE 3D SCENE */}
+                      <Plant3DScene lang={lang} />
+                      
+                      {/* Overlay UI for 3D */}
+                      <div className="absolute top-6 right-6 pointer-events-none">
+                        <div className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-500/20 backdrop-blur-md rounded-full text-white text-xs font-bold border border-emerald-400/30 shadow-lg animate-pulse">
+                            <Box size={14} />
+                            <span>WebGL 3D</span>
+                        </div>
+                      </div>
+
+                      <div className="absolute bottom-8 left-0 right-0 flex justify-center pointer-events-none">
+                         <div className="bg-black/60 backdrop-blur-md px-5 py-2.5 rounded-full border border-white/10 text-white/80 text-[10px] uppercase tracking-wider flex items-center gap-4 shadow-xl">
+                            <span className="flex items-center gap-1.5"><Rotate3d size={12} /> Rotate</span>
+                            <span className="flex items-center gap-1.5"><Move size={12} /> Pan</span>
+                            <span className="flex items-center gap-1.5"><MousePointer2 size={12} /> Double-Click Focus</span>
+                            <span className="flex items-center gap-1.5"><RefreshCcw size={12} /> 'R' Reset</span>
+                         </div>
+                      </div>
+                  </>
+              ) : (
+                  <>
+                      {/* 2D IMAGE VIEW */}
+                      <div className="w-full h-full relative overflow-hidden">
+                          <img 
+                            src={images[0]} 
+                            className="w-full h-full object-cover opacity-90 hover:scale-105 transition-transform duration-700 ease-out" 
+                            alt="Analyzed Plant"
+                          />
+                          <div className="absolute inset-0 bg-gradient-to-t from-emerald-950/80 via-transparent to-transparent pointer-events-none" />
+                      </div>
+
+                       {/* Overlay UI for 2D */}
+                      <div className="absolute top-6 right-6 pointer-events-none">
+                        <div className="flex items-center gap-1.5 px-3 py-1.5 bg-black/30 backdrop-blur-md rounded-full text-white text-xs font-bold border border-white/10 shadow-lg">
+                            <ImageIcon size={14} />
+                            <span>Source Image</span>
+                        </div>
+                      </div>
+                  </>
+              )}
               
-              {/* Floating Info Card */}
+              {/* Floating Info Card (Common) */}
               <div className="absolute bottom-8 left-6 right-6 lg:bottom-12 lg:left-10 lg:right-10 pointer-events-none">
                 <div className="bg-white/10 backdrop-blur-xl border border-white/20 p-6 rounded-2xl text-white shadow-2xl pointer-events-auto">
                   <div className="flex items-center gap-2 mb-3 text-emerald-300">
